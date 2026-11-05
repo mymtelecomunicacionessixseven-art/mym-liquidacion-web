@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Liquidación MYM</title>
+<meta name="robots" content="noindex,nofollow">
+<style>
+:root{--bg:#EDF1F6;--panel:#fff;--ink:#0F1E33;--muted:#566377;--line:#D6DDE7;--acc:#1F5FBF;--bad:#B42318}
+@media (prefers-color-scheme:dark){:root{--bg:#0E1726;--panel:#152238;--ink:#E6EDF7;--muted:#9AA9BF;--line:#26364F;--acc:#6EA2F2;--bad:#F97066}}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px}
+form{width:100%;max-width:380px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px}
+h1{font-size:20px;margin:0 0 4px}p{color:var(--muted);margin:0 0 18px;font-size:14px}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+input[type=password]{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font:inherit;background:var(--bg);color:var(--ink)}
+.rec{display:flex;gap:8px;align-items:center;margin:12px 0 16px;font-size:13px;color:var(--muted)}
+button{width:100%;padding:11px;border:0;border-radius:8px;background:var(--acc);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+button:disabled{opacity:.6;cursor:default}#msg{min-height:20px;margin-top:10px;font-size:13px;color:var(--bad)}
+</style></head><body>
+<form id="f" autocomplete="off">
+  <h1>Liquidación MYM → Mi Fibra</h1>
+  <p>Liquidación, actas de certificación y rentabilidad. Los datos están cifrados: ingresa la clave para verlos.</p>
+  <label for="k">Clave</label>
+  <input type="password" id="k" autofocus required>
+  <label class="rec"><input type="checkbox" id="r"> Recordar en este navegador</label>
+  <button id="b">Entrar</button>
+  <div id="msg" role="alert"></div>
+</form>
+<script>
+/* La página real y sus datos viajan cifrados en sitio.enc (AES-GCM con clave derivada por PBKDF2-SHA256).
+   Al descifrar, se escribe la página y sus fetch('data/...') se atienden con los archivos descifrados. */
+(()=>{
+  const LSK='mym-liq-clave',$=s=>document.querySelector(s),b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+  async function abrir(clave){
+    const enc=await (await fetch('sitio.enc',{cache:'no-store'})).json();
+    const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(clave),'PBKDF2',false,['deriveKey']);
+    const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(enc.salt),iterations:enc.it,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['decrypt']);
+    const plano=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(enc.iv)},key,b64(enc.data));
+    return JSON.parse(new TextDecoder().decode(plano));
+  }
+  function mostrar(B){
+    const nativo=window.fetch.bind(window);
+    window.fetch=(u,o)=>{const s=typeof u==='string'?u:u.url,p=new URL(s,location.href).pathname,k=Object.keys(B.files).find(f=>p.endsWith('/'+f));
+      return k?Promise.resolve(new Response(B.files[k],{headers:{'Content-Type':'application/json'}})):nativo(u,o)};
+    /* Fuera de claude.ai no hay base compartida ni conectores: los cambios se guardan en este navegador; las descargas usan el navegador */
+    const DL=Object.freeze({save:async({filename,data})=>{const bl=data instanceof Blob?data:new Blob([data]),a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download=filename;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}});
+    window.claude=Object.freeze({use:async n=>n==='downloads'?DL:null});
+    document.open();document.write(B.html);document.close();
+  }
+  async function entrar(clave,recordar){
+    $('#b').disabled=true;$('#msg').textContent='';$('#b').textContent='Abriendo…';
+    try{const B=await abrir(clave);try{if(recordar)localStorage.setItem(LSK,clave);else localStorage.removeItem(LSK)}catch(e){}mostrar(B)}
+    catch(e){$('#msg').textContent=e&&e.name==='OperationError'?'Clave incorrecta.':'No se pudo abrir la página ('+(e.message||e)+').';$('#b').disabled=false;$('#b').textContent='Entrar';try{localStorage.removeItem(LSK)}catch(x){}}
+  }
+  $('#f').onsubmit=e=>{e.preventDefault();entrar($('#k').value,$('#r').checked)};
+  let g=null;try{g=localStorage.getItem(LSK)}catch(e){}
+  if(g){$('#r').checked=true;entrar(g,true)}
+})();
+</script>
+</body></html>
